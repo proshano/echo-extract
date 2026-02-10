@@ -1,0 +1,76 @@
+{
+  "schema_name": "echo_extraction_v1_example",
+  "missing_default": "NA",
+  "features": [
+    {
+      "name": "lvef_percent",
+      "description": "Left ventricular ejection fraction percentage if explicitly reported.",
+      "type_hint": "numeric_percent_or_NA",
+      "missing_value_rule": "NA",
+      "prompt": "Prefer the explicitly stated numeric EF percentage. Do not infer from words alone."
+    },
+    {
+      "name": "lv_systolic_dysfunction_grade",
+      "description": "Overall LV systolic dysfunction grade.",
+      "allowed_values": ["normal", "mild", "moderate", "severe", "NA"],
+      "missing_value_rule": "NA",
+      "prompt": "Map textual severity statements to one allowed value. If conflicting, use the final impression."
+    },
+    {
+      "name": "diastolic_dysfunction_grade",
+      "description": "Diastolic dysfunction grade.",
+      "allowed_values": ["normal", "grade_1", "grade_2", "grade_3", "grade_4", "indeterminate", "NA"],
+      "missing_value_rule": "NA",
+      "prompt": "Capture explicit grade only; if diastolic dysfunction mentioned without grade, use indeterminate."
+    },
+    {
+      "name": "aortic_stenosis_severity",
+      "description": "Severity of aortic stenosis.",
+      "allowed_values": ["none", "sclerosis_only", "mild", "moderate", "severe", "NA"],
+      "missing_value_rule": "NA",
+      "prompt": "Differentiate aortic sclerosis from true stenosis; use sclerosis_only when explicitly stated."
+    },
+    {
+      "name": "mitral_regurgitation_severity",
+      "description": "Severity of mitral regurgitation.",
+      "allowed_values": ["none", "trace", "mild", "moderate", "severe", "NA"],
+      "missing_value_rule": "NA",
+      "prompt": "Use valve-specific wording only for mitral regurgitation."
+    },
+    {
+      "name": "tricuspid_regurgitation_severity",
+      "description": "Severity of tricuspid regurgitation.",
+      "allowed_values": ["none", "trace", "mild", "moderate", "severe", "NA"],
+      "missing_value_rule": "NA",
+      "prompt": "Use valve-specific wording only for tricuspid regurgitation."
+    },
+    {
+      "name": "rv_function",
+      "description": "Right ventricular systolic function.",
+      "allowed_values": ["normal", "mildly_reduced", "moderately_reduced", "severely_reduced", "NA"],
+      "missing_value_rule": "NA",
+      "prompt": "Map phrases like mildly/moderately/severely reduced RV systolic function to allowed values."
+    },
+    {
+      "name": "pulmonary_hypertension_mention",
+      "description": "Whether pulmonary hypertension is explicitly stated.",
+      "allowed_values": ["yes", "no", "NA"],
+      "missing_value_rule": "NA",
+      "prompt": "Set yes only if pulmonary hypertension is explicitly named."
+    },
+    {
+      "name": "estimated_rvsp_mmHg",
+      "description": "Estimated right ventricular systolic pressure in mmHg, if provided.",
+      "type_hint": "numeric_or_NA",
+      "missing_value_rule": "NA",
+      "prompt": "Extract RVSP only when numeric value and units are clearly reported."
+    },
+    {
+      "name": "pericardial_effusion",
+      "description": "Presence of pericardial effusion.",
+      "allowed_values": ["none", "small", "moderate", "large", "tamponade", "NA"],
+      "missing_value_rule": "NA",
+      "prompt": "Capture explicit pericardial effusion severity; tamponade only if clearly documented."
+    }
+  ]
+}
