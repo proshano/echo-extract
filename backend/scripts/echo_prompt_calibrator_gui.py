@@ -20,6 +20,7 @@ import platform
 import re
 import shutil
 import subprocess
+import sys
 import threading
 import tkinter as tk
 import time
@@ -86,8 +87,14 @@ class EchoPromptCalibratorApp:
         self.server_port_var = tk.StringVar(value="8080")
         self.csv_status_var = tk.StringVar(value="CSV: not loaded")
         self.sample_status_var = tk.StringVar(value="Sample: none")
+        self.server_status_var = tk.StringVar(value="Server: unknown")
+        self.model_status_var = tk.StringVar(value="Models: not checked")
 
         self._build_ui()
+        self.append_output(
+            "Quick start: 1) Select CSV 2) Refresh local models 3) Start server 4) Refresh server models 5) Test feature."
+        )
+        self.root.after(250, self.check_setup)
 
     def _build_ui(self) -> None:
         top = ttk.Frame(self.root, padding=8)
@@ -121,37 +128,43 @@ class EchoPromptCalibratorApp:
         ttk.Label(top, textvariable=self.csv_status_var).grid(row=4, column=0, columnspan=4, sticky="w", pady=(4, 0))
         ttk.Label(top, textvariable=self.sample_status_var).grid(row=4, column=4, columnspan=3, sticky="w", pady=(4, 0))
 
-        model_frame = ttk.LabelFrame(self.root, text="llama.cpp / Model Setup", padding=8)
+        model_frame = ttk.LabelFrame(self.root, text="llama.cpp / Model Setup (Step-by-step)", padding=8)
         model_frame.pack(fill=tk.X, padx=8, pady=4)
+        ttk.Label(
+            model_frame,
+            text="Server models only appear after llama-server is started.",
+        ).grid(row=0, column=0, columnspan=5, sticky="w", pady=(0, 4))
 
-        ttk.Label(model_frame, text="Local GGUF model").grid(row=0, column=0, sticky="w")
+        ttk.Label(model_frame, text="Step 1 - Local GGUF model").grid(row=1, column=0, sticky="w")
         self.local_model_combo = ttk.Combobox(model_frame, textvariable=self.local_model_var, width=95)
-        self.local_model_combo.grid(row=0, column=1, sticky="we", padx=4)
-        ttk.Button(model_frame, text="Refresh Local Models", command=self.refresh_local_models).grid(row=0, column=2, padx=2)
-        ttk.Button(model_frame, text="Deep Scan Models", command=self.deep_scan_local_models).grid(row=0, column=3, padx=2)
-        ttk.Button(model_frame, text="Browse Model File", command=self.browse_model_file).grid(row=0, column=4, padx=2)
+        self.local_model_combo.grid(row=1, column=1, sticky="we", padx=4)
+        ttk.Button(model_frame, text="Refresh Local Models", command=self.refresh_local_models).grid(row=1, column=2, padx=2)
+        ttk.Button(model_frame, text="Deep Scan Models", command=self.deep_scan_local_models).grid(row=1, column=3, padx=2)
+        ttk.Button(model_frame, text="Browse Model File", command=self.browse_model_file).grid(row=1, column=4, padx=2)
 
-        ttk.Label(model_frame, text="llama.cpp server model").grid(row=1, column=0, sticky="w")
+        ttk.Label(model_frame, text="Step 3 - Server model").grid(row=2, column=0, sticky="w")
         self.server_model_combo = ttk.Combobox(model_frame, textvariable=self.server_model_var, width=50)
-        self.server_model_combo.grid(row=1, column=1, sticky="w", padx=4)
-        ttk.Button(model_frame, text="Refresh Server Models", command=self.refresh_server_models).grid(row=1, column=2, padx=2)
-        ttk.Label(model_frame, text="Port").grid(row=1, column=3, sticky="e")
-        ttk.Entry(model_frame, textvariable=self.server_port_var, width=8).grid(row=1, column=4, sticky="w", padx=4)
+        self.server_model_combo.grid(row=2, column=1, sticky="w", padx=4)
+        ttk.Button(model_frame, text="Refresh Server Models", command=self.refresh_server_models).grid(row=2, column=2, padx=2)
+        ttk.Label(model_frame, text="Port").grid(row=2, column=3, sticky="e")
+        ttk.Entry(model_frame, textvariable=self.server_port_var, width=8).grid(row=2, column=4, sticky="w", padx=4)
 
-        ttk.Button(model_frame, text="Check Setup", command=self.check_setup).grid(row=2, column=0, padx=2, pady=2, sticky="w")
-        ttk.Button(model_frame, text="Install llama.cpp (Homebrew)", command=self.install_llamacpp).grid(row=2, column=1, padx=2, pady=2, sticky="w")
-        ttk.Button(model_frame, text="Start llama-server", command=self.start_llama_server).grid(row=2, column=2, padx=2, pady=2, sticky="w")
-        ttk.Button(model_frame, text="Stop llama-server", command=self.stop_llama_server).grid(row=2, column=3, padx=2, pady=2, sticky="w")
+        ttk.Button(model_frame, text="Check Setup", command=self.check_setup).grid(row=3, column=0, padx=2, pady=2, sticky="w")
+        ttk.Button(model_frame, text="Install llama.cpp (macOS/Homebrew)", command=self.install_llamacpp).grid(row=3, column=1, padx=2, pady=2, sticky="w")
+        ttk.Button(model_frame, text="Step 2 - Start llama-server", command=self.start_llama_server).grid(row=3, column=2, padx=2, pady=2, sticky="w")
+        ttk.Button(model_frame, text="Stop llama-server", command=self.stop_llama_server).grid(row=3, column=3, padx=2, pady=2, sticky="w")
 
-        ttk.Label(model_frame, text="Recommended model").grid(row=3, column=0, sticky="w")
+        ttk.Label(model_frame, text="Recommended model").grid(row=4, column=0, sticky="w")
         self.recommended_combo = ttk.Combobox(
             model_frame,
             textvariable=self.recommended_model_var,
             values=[label for (label, _, _) in RECOMMENDED_MODELS],
             width=50,
         )
-        self.recommended_combo.grid(row=3, column=1, sticky="w", padx=4)
-        ttk.Button(model_frame, text="Download Selected Model", command=self.download_recommended_model).grid(row=3, column=2, padx=2, pady=2, sticky="w")
+        self.recommended_combo.grid(row=4, column=1, sticky="w", padx=4)
+        ttk.Button(model_frame, text="Download Selected Model", command=self.download_recommended_model).grid(row=4, column=2, padx=2, pady=2, sticky="w")
+        ttk.Label(model_frame, textvariable=self.server_status_var).grid(row=5, column=0, columnspan=2, sticky="w", pady=(4, 0))
+        ttk.Label(model_frame, textvariable=self.model_status_var).grid(row=5, column=2, columnspan=3, sticky="w", pady=(4, 0))
 
         model_frame.columnconfigure(1, weight=1)
         top.columnconfigure(1, weight=1)
@@ -750,6 +763,11 @@ class EchoPromptCalibratorApp:
         if models and not self.local_model_var.get().strip():
             self.local_model_var.set(models[0])
         self.append_output(f"Found {len(models)} local GGUF model(s).")
+        if models:
+            selected_name = Path(models[0]).name
+            self.model_status_var.set(f"Models: local found ({len(models)}), selected={selected_name}")
+        else:
+            self.model_status_var.set("Models: no local GGUF found yet")
         if timed_out:
             self.append_output("Model scan timed out for responsiveness. Use 'Deep Scan Models' for a broader scan.")
         if not models:
@@ -783,11 +801,16 @@ class EchoPromptCalibratorApp:
     def _apply_server_model_refresh(self, models: List[str], error_message: str) -> None:
         if error_message:
             self.append_output(error_message)
+            self.server_status_var.set("Server: unreachable")
             return
         self.server_models = models
         self.server_model_combo["values"] = models
         if models and not self.server_model_var.get().strip():
             self.server_model_var.set(models[0])
+        if models:
+            self.server_status_var.set(f"Server: running, {len(models)} model(s) available")
+        else:
+            self.server_status_var.set("Server: reachable, but no models reported")
         self.append_output(f"Server models: {models if models else 'none reported'}")
 
     def refresh_server_models(self) -> None:
@@ -804,6 +827,8 @@ class EchoPromptCalibratorApp:
             else:
                 self.append_output("llama-server not found in PATH.")
                 self.append_output("Click 'Install llama.cpp (Homebrew)' or install manually.")
+            self._on_ui(lambda: self.server_status_var.set("Server: checking..."))
+            self._on_ui(lambda: self.model_status_var.set("Models: checking..."))
             self._refresh_local_models_sync(include_slow_dirs=False)
             self._refresh_server_models_sync(base_url=base_url)
 
@@ -849,6 +874,25 @@ class EchoPromptCalibratorApp:
 
         self._run_in_thread(worker)
 
+    def _ensure_hf_cli(self) -> bool:
+        hf_cli = shutil.which("huggingface-cli")
+        if hf_cli:
+            return True
+
+        self.append_output("huggingface-cli not found. Attempting automatic install...")
+        process = subprocess.Popen(
+            [sys.executable, "-m", "pip", "install", "-U", "huggingface_hub[cli]"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        code = self._stream_subprocess_output(process, prefix="[pip] ")
+        if code != 0:
+            self.append_output("Automatic install failed. Run manually: pip install -U \"huggingface_hub[cli]\"")
+            return False
+        self.append_output("Installed huggingface_hub CLI successfully.")
+        return shutil.which("huggingface-cli") is not None
+
     def download_recommended_model(self) -> None:
         def worker() -> None:
             selected_label = self.recommended_model_var.get().strip()
@@ -862,10 +906,11 @@ class EchoPromptCalibratorApp:
                 return
 
             _, repo_id, filename = choice
+            if not self._ensure_hf_cli():
+                return
             hf_cli = shutil.which("huggingface-cli")
             if not hf_cli:
-                self.append_output("huggingface-cli not found.")
-                self.append_output("Install with: pip install -U \"huggingface_hub[cli]\"")
+                self.append_output("huggingface-cli is still unavailable after install attempt.")
                 return
 
             models_dir = Path.home() / "models"
@@ -900,6 +945,7 @@ class EchoPromptCalibratorApp:
             return
         if self.server_process and self.server_process.poll() is None:
             self.append_output("llama-server is already running from this UI session.")
+            self.server_status_var.set("Server: already running")
             return
 
         port = self.server_port_var.get().strip() or "8080"
@@ -923,10 +969,12 @@ class EchoPromptCalibratorApp:
 
         self.server_process = process
         self.llama_url_var.set(f"http://127.0.0.1:{port}")
+        self.server_status_var.set("Server: starting...")
 
         def stream_worker() -> None:
             exit_code = self._stream_subprocess_output(process, prefix="[llama-server] ")
             self.append_output(f"llama-server exited with code {exit_code}.")
+            self._on_ui(lambda: self.server_status_var.set("Server: not running"))
 
         self._run_in_thread(stream_worker)
         self.append_output("llama-server launched. Use 'Refresh Server Models' in a few seconds.")
@@ -935,9 +983,11 @@ class EchoPromptCalibratorApp:
         process = self.server_process
         if process is None or process.poll() is not None:
             self.append_output("No llama-server process started from this UI is running.")
+            self.server_status_var.set("Server: not running")
             return
         process.terminate()
         self.append_output("Sent terminate signal to llama-server.")
+        self.server_status_var.set("Server: stopping...")
 
 
 def parse_args() -> argparse.Namespace:

@@ -73,6 +73,12 @@ Launch a local desktop UI (no frontend build):
 python backend/scripts/launch_echo_calibrator.py
 ```
 
+Create a desktop launcher icon (macOS `.command` file):
+
+```bash
+python backend/scripts/create_desktop_launcher.py
+```
+
 Optional preload:
 
 ```bash
