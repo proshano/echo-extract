@@ -500,16 +500,65 @@ class EchoPromptCalibratorApp:
             }
 
         selected_server_model = self.server_model_var.get().strip()
-        return echo_extract.call_llamacpp_with_retries(
+        result = echo_extract.call_llamacpp_with_retries(
             base_url=base_url,
             prompt=prompt,
             temperature=float(self.temperature_var.get().strip() or "0.0"),
             max_retries=int(self.max_retries_var.get().strip() or "5"),
             model=selected_server_model,
         )
+        if not result.get("success"):
+            raw_error = str(result.get("error", "") or "")
+            lowered = raw_error.lower()
+            if "connection refused" in lowered or "failed to establish a new connection" in lowered:
+                local_model = self.local_model_var.get().strip()
+                guidance = (
+                    f"Cannot connect to llama.cpp at {base_url}. "
+                    "Start llama-server and verify the port."
+                )
+                if local_model:
+                    guidance += " You already selected a local model, so click 'Start llama-server'."
+                else:
+                    guidance += " Select a local GGUF model first, then click 'Start llama-server'."
+                result["error"] = guidance
+        return result
+
+    def _get_inference_readiness_error(self) -> Optional[str]:
+        base_url = self.llama_url_var.get().strip().rstrip("/")
+        if not base_url:
+            return "Llama URL is empty."
+
+        selected_local_model = self.local_model_var.get().strip()
+        selected_server_model = self.server_model_var.get().strip()
+        if not selected_local_model and not selected_server_model:
+            return (
+                "No model selected. Pick a local GGUF model (or refresh server models), "
+                "then start llama-server."
+            )
+
+        try:
+            response = requests.get(f"{base_url}/v1/models", timeout=2)
+            response.raise_for_status()
+        except Exception as exc:
+            if selected_local_model:
+                return (
+                    f"llama.cpp is not reachable at {base_url}: {exc}. "
+                    "Click 'Start llama-server'."
+                )
+            return (
+                f"llama.cpp is not reachable at {base_url}: {exc}. "
+                "Select a local model and click 'Start llama-server'."
+            )
+
+        return None
 
     def test_selected_feature(self) -> None:
         self.save_feature_edits(silent=True)
+        readiness_error = self._get_inference_readiness_error()
+        if readiness_error:
+            self.append_output(f"LLM setup error: {readiness_error}")
+            messagebox.showerror("LLM setup required", readiness_error)
+            return
         row = self.get_sample_row()
         idx = self.get_selected_feature_index()
         if row is None:
@@ -544,6 +593,11 @@ class EchoPromptCalibratorApp:
 
     def test_all_features(self) -> None:
         self.save_feature_edits(silent=True)
+        readiness_error = self._get_inference_readiness_error()
+        if readiness_error:
+            self.append_output(f"LLM setup error: {readiness_error}")
+            messagebox.showerror("LLM setup required", readiness_error)
+            return
         row = self.get_sample_row()
         if row is None:
             messagebox.showerror("Error", "Load an input CSV first.")
