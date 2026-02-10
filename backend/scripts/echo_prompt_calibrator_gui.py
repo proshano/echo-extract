@@ -482,8 +482,16 @@ class EchoPromptCalibratorApp:
             f"{report_text}\n"
         )
 
-    def _call_llm(self, prompt: str) -> Dict[str, Any]:
-        base_url = self.llama_url_var.get().strip().rstrip("/")
+    def _call_llm(
+        self,
+        prompt: str,
+        base_url: str,
+        temperature: float,
+        max_retries: int,
+        selected_server_model: str,
+        has_selected_local_model: bool,
+    ) -> Dict[str, Any]:
+        base_url = base_url.strip().rstrip("/")
         if not base_url:
             return {"success": False, "content": "", "error": "Llama URL is empty.", "model": ""}
 
@@ -499,37 +507,38 @@ class EchoPromptCalibratorApp:
                 "model": "",
             }
 
-        selected_server_model = self.server_model_var.get().strip()
         result = echo_extract.call_llamacpp_with_retries(
             base_url=base_url,
             prompt=prompt,
-            temperature=float(self.temperature_var.get().strip() or "0.0"),
-            max_retries=int(self.max_retries_var.get().strip() or "5"),
+            temperature=float(temperature),
+            max_retries=int(max_retries),
             model=selected_server_model,
         )
         if not result.get("success"):
             raw_error = str(result.get("error", "") or "")
             lowered = raw_error.lower()
             if "connection refused" in lowered or "failed to establish a new connection" in lowered:
-                local_model = self.local_model_var.get().strip()
                 guidance = (
                     f"Cannot connect to llama.cpp at {base_url}. "
                     "Start llama-server and verify the port."
                 )
-                if local_model:
+                if has_selected_local_model:
                     guidance += " You already selected a local model, so click 'Start llama-server'."
                 else:
                     guidance += " Select a local GGUF model first, then click 'Start llama-server'."
                 result["error"] = guidance
         return result
 
-    def _get_inference_readiness_error(self) -> Optional[str]:
-        base_url = self.llama_url_var.get().strip().rstrip("/")
+    def _get_inference_readiness_error(
+        self,
+        base_url: str,
+        selected_local_model: str,
+        selected_server_model: str,
+    ) -> Optional[str]:
+        base_url = base_url.strip().rstrip("/")
         if not base_url:
             return "Llama URL is empty."
 
-        selected_local_model = self.local_model_var.get().strip()
-        selected_server_model = self.server_model_var.get().strip()
         if not selected_local_model and not selected_server_model:
             return (
                 "No model selected. Pick a local GGUF model (or refresh server models), "
@@ -554,11 +563,6 @@ class EchoPromptCalibratorApp:
 
     def test_selected_feature(self) -> None:
         self.save_feature_edits(silent=True)
-        readiness_error = self._get_inference_readiness_error()
-        if readiness_error:
-            self.append_output(f"LLM setup error: {readiness_error}")
-            messagebox.showerror("LLM setup required", readiness_error)
-            return
         row = self.get_sample_row()
         idx = self.get_selected_feature_index()
         if row is None:
@@ -572,10 +576,38 @@ class EchoPromptCalibratorApp:
         report_text = str(row.get(report_col, "")).strip()
         feature = self.schema_features[idx]
         prompt = self.build_single_feature_prompt(feature, report_text)
+        base_url = self.llama_url_var.get().strip()
+        selected_local_model = self.local_model_var.get().strip()
+        selected_server_model = self.server_model_var.get().strip()
+        try:
+            temperature = float(self.temperature_var.get().strip() or "0.0")
+        except ValueError:
+            temperature = 0.0
+        try:
+            max_retries = int(self.max_retries_var.get().strip() or "5")
+        except ValueError:
+            max_retries = 5
+
+        self.append_output(f"Starting selected feature test: {feature.get('name', '')}")
 
         def worker() -> None:
-            self.append_output(f"Testing feature: {feature.get('name', '')}")
-            result = self._call_llm(prompt)
+            readiness_error = self._get_inference_readiness_error(
+                base_url=base_url,
+                selected_local_model=selected_local_model,
+                selected_server_model=selected_server_model,
+            )
+            if readiness_error:
+                self.append_output(f"LLM setup error: {readiness_error}")
+                self._on_ui(lambda: messagebox.showerror("LLM setup required", readiness_error))
+                return
+            result = self._call_llm(
+                prompt=prompt,
+                base_url=base_url,
+                temperature=temperature,
+                max_retries=max_retries,
+                selected_server_model=selected_server_model,
+                has_selected_local_model=bool(selected_local_model),
+            )
             raw = str(result.get("content", "") or "")
             if not result.get("success"):
                 self.append_output(f"LLM error: {result.get('error', '')}")
@@ -593,11 +625,6 @@ class EchoPromptCalibratorApp:
 
     def test_all_features(self) -> None:
         self.save_feature_edits(silent=True)
-        readiness_error = self._get_inference_readiness_error()
-        if readiness_error:
-            self.append_output(f"LLM setup error: {readiness_error}")
-            messagebox.showerror("LLM setup required", readiness_error)
-            return
         row = self.get_sample_row()
         if row is None:
             messagebox.showerror("Error", "Load an input CSV first.")
@@ -608,12 +635,41 @@ class EchoPromptCalibratorApp:
         if not features:
             messagebox.showerror("Error", "Define at least one feature.")
             return
+        base_url = self.llama_url_var.get().strip()
+        selected_local_model = self.local_model_var.get().strip()
+        selected_server_model = self.server_model_var.get().strip()
+        try:
+            temperature = float(self.temperature_var.get().strip() or "0.0")
+        except ValueError:
+            temperature = 0.0
+        try:
+            max_retries = int(self.max_retries_var.get().strip() or "5")
+        except ValueError:
+            max_retries = 5
+
+        self.append_output(f"Starting all-feature test for {len(features)} feature(s).")
 
         def worker() -> None:
+            readiness_error = self._get_inference_readiness_error(
+                base_url=base_url,
+                selected_local_model=selected_local_model,
+                selected_server_model=selected_server_model,
+            )
+            if readiness_error:
+                self.append_output(f"LLM setup error: {readiness_error}")
+                self._on_ui(lambda: messagebox.showerror("LLM setup required", readiness_error))
+                return
             self.append_output("Running all-feature calibration on sample row...")
             for feature in features:
                 prompt = self.build_single_feature_prompt(feature, report_text)
-                result = self._call_llm(prompt)
+                result = self._call_llm(
+                    prompt=prompt,
+                    base_url=base_url,
+                    temperature=temperature,
+                    max_retries=max_retries,
+                    selected_server_model=selected_server_model,
+                    has_selected_local_model=bool(selected_local_model),
+                )
                 name = str(feature.get("name", ""))
                 if not result.get("success"):
                     self.append_output(f"{name}: LLM error => {result.get('error', '')}")
@@ -705,8 +761,8 @@ class EchoPromptCalibratorApp:
     def deep_scan_local_models(self) -> None:
         self._run_in_thread(lambda: self._refresh_local_models_sync(include_slow_dirs=True))
 
-    def _refresh_server_models_sync(self) -> None:
-        base_url = self.llama_url_var.get().strip().rstrip("/")
+    def _refresh_server_models_sync(self, base_url: str) -> None:
+        base_url = base_url.strip().rstrip("/")
         endpoint = f"{base_url}/v1/models"
         models: List[str] = []
         error_message = ""
@@ -735,9 +791,12 @@ class EchoPromptCalibratorApp:
         self.append_output(f"Server models: {models if models else 'none reported'}")
 
     def refresh_server_models(self) -> None:
-        self._run_in_thread(self._refresh_server_models_sync)
+        base_url = self.llama_url_var.get().strip()
+        self._run_in_thread(lambda: self._refresh_server_models_sync(base_url=base_url))
 
     def check_setup(self) -> None:
+        base_url = self.llama_url_var.get().strip()
+
         def worker() -> None:
             binary = self._get_llama_server_binary()
             if binary:
@@ -746,7 +805,7 @@ class EchoPromptCalibratorApp:
                 self.append_output("llama-server not found in PATH.")
                 self.append_output("Click 'Install llama.cpp (Homebrew)' or install manually.")
             self._refresh_local_models_sync(include_slow_dirs=False)
-            self._refresh_server_models_sync()
+            self._refresh_server_models_sync(base_url=base_url)
 
         self._run_in_thread(worker)
 
@@ -786,7 +845,7 @@ class EchoPromptCalibratorApp:
                 self.append_output("llama.cpp installation complete.")
             else:
                 self.append_output(f"llama.cpp installation failed with exit code {code}.")
-            self.check_setup()
+            self._on_ui(self.check_setup)
 
         self._run_in_thread(worker)
 
