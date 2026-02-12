@@ -30,8 +30,25 @@ Install these tools on your machine before running setup:
 - Python 3.9 or newer
 - Node.js 18 or newer
 - npm
+- `llama.cpp` with `llama-server` available in your `PATH`
+- At least one `.gguf` model
 
-Optional for model inference: a local `llama.cpp` server and at least one `.gguf` model.
+This repository does not bundle `llama.cpp` binaries.
+
+## Optional: auto-install missing host tools
+
+When run interactively, the install script checks for missing system tools and prompts to install them automatically.
+
+For non-interactive runs (CI, scripts), you can force host-level install:
+
+```bash
+AUTO_INSTALL_SYSTEM_DEPS=1 ./scripts/install_calibrator_web_deps.sh
+```
+
+Supported package managers for auto-install in this script:
+
+- `brew`
+- `apt-get` (does not auto-install `llama.cpp`)
 
 ## Running services manually
 
@@ -63,10 +80,14 @@ VITE_API_BASE=http://127.0.0.1:8000 npm run dev -- --host 127.0.0.1 --port 5173
 `scripts/install_calibrator_web_deps.sh` supports:
 
 - `PYTHON_BIN` (default: `python3`)
+- `NODE_BIN` (default: `node`)
 - `VENV_DIR` (default: `.venv` in repo root)
 - `BACKEND_REQUIREMENTS_FILE`
 - `FRONTEND_DIR`
 - `NPM_BIN` (default: `npm`)
+- `AUTO_INSTALL_SYSTEM_DEPS=1` to auto-install missing Python/Node/npm and `llama.cpp` when supported
+- `PROMPT_INSTALL_SYSTEM_DEPS=0` to disable the interactive install prompt
+- `SYSTEM_PACKAGE_MANAGER` (`auto`, `brew`, or `apt`)
 
 ## Core paths
 
