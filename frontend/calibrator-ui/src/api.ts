@@ -272,6 +272,25 @@ export async function ensureLlamaServer(payload: {
   });
 }
 
+export async function stopLlamaServer(payload: { llamaUrl: string }): Promise<LlamaServerStatusResponse> {
+  return postJson<LlamaServerStatusResponse>("/api/llama/server/stop", {
+    llama_url: payload.llamaUrl,
+  });
+}
+
+export function stopLlamaServerOnPageUnload(): void {
+  const url = `${API_BASE}/api/llama/server/stop-now`;
+  if (typeof navigator !== "undefined" && typeof navigator.sendBeacon === "function") {
+    if (navigator.sendBeacon(url)) {
+      return;
+    }
+  }
+
+  void fetch(url, { method: "POST", keepalive: true, mode: "cors" }).catch(() => {
+    // Ignore unload errors because the page may already be navigating away.
+  });
+}
+
 export async function loadCsvFromPath(payload: {
   path: string;
   previewRows: number;

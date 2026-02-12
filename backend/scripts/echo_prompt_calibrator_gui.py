@@ -19,6 +19,7 @@ import os
 import platform
 import queue
 import re
+import signal
 import shutil
 import subprocess
 import sys
@@ -345,6 +346,7 @@ class EchoPromptCalibratorApp:
     def _on_close(self) -> None:
         self.save_feature_edits(silent=True)
         self._save_persistent_state_now(announce=False)
+        self.stop_llama_server(announce_when_missing=False)
         self.root.destroy()
 
     def _run_in_thread(self, target) -> None:
@@ -1130,6 +1132,62 @@ class EchoPromptCalibratorApp:
 
         self._run_in_thread(worker)
 
+    def _terminate_llama_process(self, process: subprocess.Popen[str]) -> bool:
+        if process.poll() is not None:
+            return True
+
+        used_process_group = False
+        process_group_id: Optional[int] = None
+
+        if os.name != "nt":
+            try:
+                process_group_id = os.getpgid(process.pid)
+            except (OSError, ProcessLookupError):
+                process_group_id = None
+
+            if process_group_id is not None and process_group_id == process.pid:
+                try:
+                    os.killpg(process_group_id, signal.SIGTERM)
+                    used_process_group = True
+                except ProcessLookupError:
+                    return True
+                except OSError:
+                    used_process_group = False
+
+        if not used_process_group:
+            try:
+                process.terminate()
+            except OSError:
+                return True
+
+        try:
+            process.wait(timeout=5)
+            return True
+        except subprocess.TimeoutExpired:
+            pass
+
+        if used_process_group and process_group_id is not None:
+            try:
+                os.killpg(process_group_id, signal.SIGKILL)
+            except ProcessLookupError:
+                return True
+            except OSError:
+                try:
+                    process.kill()
+                except OSError:
+                    return True
+        else:
+            try:
+                process.kill()
+            except OSError:
+                return True
+
+        try:
+            process.wait(timeout=3)
+            return True
+        except subprocess.TimeoutExpired:
+            return False
+
     def start_llama_server(self) -> None:
         model_path = self.local_model_var.get().strip()
         binary = self._get_llama_server_binary()
@@ -1156,12 +1214,19 @@ class EchoPromptCalibratorApp:
         self.append_output(f"Starting llama-server: {' '.join(command)}")
 
         try:
-            process = subprocess.Popen(
-                command,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-            )
+            popen_kwargs: Dict[str, Any] = {
+                "stdout": subprocess.PIPE,
+                "stderr": subprocess.STDOUT,
+                "text": True,
+            }
+            if os.name == "nt":
+                creation_flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+                if creation_flags:
+                    popen_kwargs["creationflags"] = creation_flags
+            else:
+                popen_kwargs["start_new_session"] = True
+
+            process = subprocess.Popen(command, **popen_kwargs)
         except Exception as exc:
             messagebox.showerror("Error", f"Failed to start llama-server: {exc}")
             return
@@ -1178,15 +1243,23 @@ class EchoPromptCalibratorApp:
         self._run_in_thread(stream_worker)
         self.append_output("llama-server launched. Use 'Refresh Server Models' in a few seconds.")
 
-    def stop_llama_server(self) -> None:
+    def stop_llama_server(self, *, announce_when_missing: bool = True) -> None:
         process = self.server_process
         if process is None or process.poll() is not None:
-            self.append_output("No llama-server process started from this UI is running.")
+            if announce_when_missing:
+                self.append_output("No llama-server process started from this UI is running.")
             self.server_status_var.set("Server: not running")
+            self.server_process = None
             return
-        process.terminate()
-        self.append_output("Sent terminate signal to llama-server.")
+
         self.server_status_var.set("Server: stopping...")
+        stopped = self._terminate_llama_process(process)
+        self.server_process = None
+        if stopped:
+            self.append_output("llama-server stopped.")
+        else:
+            self.append_output("Warning: llama-server may still be running after stop attempt.")
+        self.server_status_var.set("Server: not running")
 
 
 def parse_args() -> argparse.Namespace:

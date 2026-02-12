@@ -15,6 +15,8 @@ import {
   loadSession,
   searchGgufModels,
   saveSession,
+  stopLlamaServer,
+  stopLlamaServerOnPageUnload,
   testBatch,
   testFeature,
 } from "./api";
@@ -575,6 +577,7 @@ function App() {
   const [isLocalSchemaIOPending, setIsLocalSchemaIOPending] = useState(false);
   const schemaFileInputRef = useRef<HTMLInputElement>(null);
   const recordedJobIdsRef = useRef<Set<string>>(new Set());
+  const llamaStatusRef = useRef<LlamaServerStatusResponse | null>(null);
 
   const healthQuery = useQuery({
     queryKey: ["health"],
@@ -777,6 +780,17 @@ function App() {
     onError: (error: Error) => {
       addToast(error.message, "error");
       setLlamaStatus(null);
+    },
+  });
+
+  const stopLlamaMutation = useMutation({
+    mutationFn: stopLlamaServer,
+    onSuccess: (data) => {
+      applyLlamaStatus(data);
+      addToast("Local model server stopped.", "info");
+    },
+    onError: (error: Error) => {
+      addToast(error.message, "error");
     },
   });
 
@@ -1077,6 +1091,31 @@ function App() {
     setRunHistory((prev) => [nextRunRecord, ...prev].slice(0, 30));
     setPendingRunExperimentNames([]);
   }, [jobId, jobQuery.data, activeExperiment?.name, pendingRunExperimentNames]);
+
+  useEffect(() => {
+    llamaStatusRef.current = llamaStatus;
+  }, [llamaStatus]);
+
+  useEffect(() => {
+    let stopSent = false;
+    const handlePageClose = () => {
+      if (stopSent) {
+        return;
+      }
+      if (!llamaStatusRef.current?.process_running) {
+        return;
+      }
+      stopSent = true;
+      stopLlamaServerOnPageUnload();
+    };
+
+    window.addEventListener("pagehide", handlePageClose);
+    window.addEventListener("beforeunload", handlePageClose);
+    return () => {
+      window.removeEventListener("pagehide", handlePageClose);
+      window.removeEventListener("beforeunload", handlePageClose);
+    };
+  }, []);
 
   useEffect(() => {
     if (!sessionLoaded) {
@@ -1564,6 +1603,11 @@ function App() {
 
   function handleRefreshLocalModels(): void {
     listLocalModelsMutation.mutate();
+  }
+
+  function handleStopLlamaServer(): void {
+    const currentLlamaUrl = llamaStatus?.llama_url || `http://127.0.0.1:${llamaPort}`;
+    stopLlamaMutation.mutate({ llamaUrl: currentLlamaUrl });
   }
 
   function handleSearchHfModels(): void {
@@ -2105,6 +2149,14 @@ function App() {
                 >
                   {listLocalModelsMutation.isPending ? "Scanning models..." : "Refresh models"}
                 </button>
+                <button
+                  className="btn btn-ghost"
+                  onClick={handleStopLlamaServer}
+                  disabled={stopLlamaMutation.isPending}
+                  type="button"
+                >
+                  {stopLlamaMutation.isPending ? "Stopping server..." : "Stop local server"}
+                </button>
               </div>
 
               <div className="hf-install">
@@ -2282,6 +2334,7 @@ function App() {
                 llama-server binary: {llamaBinaryPath || "not found in PATH"}
               </p>
               {ensureLlamaMutation.isPending && <p className="muted">Preparing local model server...</p>}
+              {stopLlamaMutation.isPending && <p className="muted">Stopping local model server...</p>}
               {llamaStatus?.connect_error && !ensureLlamaMutation.isPending && <p className="error">{llamaStatus.connect_error}</p>}
             </div>
 

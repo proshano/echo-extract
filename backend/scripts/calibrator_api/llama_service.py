@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import signal
 import shutil
 import subprocess
 import threading
@@ -143,6 +144,62 @@ class LlamaServerManager:
             process = self._process
             return process is not None and process.poll() is None
 
+    def _terminate_process(self, process: subprocess.Popen[str]) -> None:
+        if process.poll() is not None:
+            return
+
+        used_process_group = False
+        process_group_id: Optional[int] = None
+
+        if os.name != "nt":
+            try:
+                process_group_id = os.getpgid(process.pid)
+            except (OSError, ProcessLookupError):
+                process_group_id = None
+
+            if process_group_id is not None and process_group_id == process.pid:
+                try:
+                    os.killpg(process_group_id, signal.SIGTERM)
+                    used_process_group = True
+                except ProcessLookupError:
+                    return
+                except OSError as exc:
+                    self._append_log(f"[managed] Could not signal process group: {exc}. Falling back to terminate().")
+
+        if not used_process_group:
+            try:
+                process.terminate()
+            except OSError:
+                return
+
+        try:
+            process.wait(timeout=5)
+            return
+        except subprocess.TimeoutExpired:
+            pass
+
+        if used_process_group and process_group_id is not None:
+            try:
+                os.killpg(process_group_id, signal.SIGKILL)
+            except ProcessLookupError:
+                return
+            except OSError as exc:
+                self._append_log(f"[managed] Could not force-kill process group: {exc}. Falling back to kill().")
+                try:
+                    process.kill()
+                except OSError:
+                    return
+        else:
+            try:
+                process.kill()
+            except OSError:
+                return
+
+        try:
+            process.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            self._append_log("[managed] Warning: llama-server did not exit after force kill.")
+
     def start(self, *, model_path: str, port: int, ctx_size: int = 8192) -> Dict[str, object]:
         model_value = model_path.strip()
         if not model_value:
@@ -161,13 +218,19 @@ class LlamaServerManager:
 
         command = [binary, "-m", str(model_file), "--port", str(port), "--ctx-size", str(ctx_size)]
         try:
-            process = subprocess.Popen(
-                command,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                bufsize=1,
-            )
+            popen_kwargs: Dict[str, object] = {
+                "stdout": subprocess.PIPE,
+                "stderr": subprocess.STDOUT,
+                "text": True,
+                "bufsize": 1,
+            }
+            if os.name == "nt":
+                creation_flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+                if creation_flags:
+                    popen_kwargs["creationflags"] = creation_flags
+            else:
+                popen_kwargs["start_new_session"] = True
+            process = subprocess.Popen(command, **popen_kwargs)
         except OSError as exc:
             raise LlamaServiceError(f"Failed to start llama-server: {exc}") from exc
 
@@ -235,12 +298,7 @@ class LlamaServerManager:
             self._append_log("[managed] Stop requested, but no managed process is running.")
             return self.get_process_info()
 
-        process.terminate()
-        try:
-            process.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            process.wait(timeout=3)
+        self._terminate_process(process)
 
         self._append_log("[managed] llama-server stopped.")
         with self._lock:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -220,7 +221,20 @@ def build_calibration_options(request: Any, source_override: Any = None) -> Cali
 
 
 job_store = CalibrationJobStore()
-app = FastAPI(title="Data Calibrator API", version="0.1.0")
+
+
+@asynccontextmanager
+async def app_lifespan(_: FastAPI):
+    try:
+        yield
+    finally:
+        try:
+            llama_server_manager.stop()
+        except Exception:
+            pass
+
+
+app = FastAPI(title="Data Calibrator API", version="0.1.0", lifespan=app_lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -426,6 +440,12 @@ async def llama_server_stop_endpoint(request: LlamaServerStatusRequest) -> Dict[
         return llama_server_manager.status(llama_url=request.llama_url)
     except LlamaServiceError as exc:
         raise ApiError(status_code=400, code="llama_stop_failed", message=str(exc)) from exc
+
+
+@app.post("/api/llama/server/stop-now")
+async def llama_server_stop_now_endpoint() -> Dict[str, Any]:
+    llama_server_manager.stop()
+    return {"stopped": True}
 
 
 @app.post("/api/test/feature")

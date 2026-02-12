@@ -443,6 +443,17 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(payload["process_running"], False)
         self.assertEqual(payload["logs_tail"], ["[managed] llama-server stopped."])
 
+    def test_llama_server_stop_now_endpoint(self):
+        with patch(
+            "backend.scripts.calibrator_api.app.llama_server_manager.stop",
+            return_value={"process_running": False},
+        ) as mocked_stop:
+            response = self.client.post("/api/llama/server/stop-now")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["stopped"], True)
+        mocked_stop.assert_called_once()
+
     def test_test_all_job_lifecycle(self):
         with patch(
             "backend.scripts.extract_pipeline.call_llamacpp_with_retries",
