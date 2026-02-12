@@ -1,0 +1,28 @@
+# macOS and editor artifacts
+.DS_Store
+.idea/
+.vscode/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Frontend build/cache artifacts
+frontend/calibrator-ui/dist/
+frontend/calibrator-ui/.vite/
+frontend/calibrator-ui/.calibrator_npm_deps_ready
+frontend/calibrator-ui/tsconfig.tsbuildinfo
+
+# Backend dependency stamp
+.venv/.calibrator_python_deps_ready
